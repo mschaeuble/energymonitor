@@ -1,3 +1,5 @@
+#define PxMATRIX_DOUBLE_BUFFER true
+
 #include <PxMatrix.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
@@ -85,8 +87,6 @@ void setup() {
 
   setupWifi();
 
-  display.clearDisplay();
-  drawStaticImages();
 
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setCallback(mqttCallback);
@@ -108,7 +108,7 @@ void setupWifi() {
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
-    delay(3000);
+    delay(500);
     display.print(".");
   }
 
@@ -168,7 +168,39 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   updateDisplay();
 }
 
-void drawStaticImages() {
+void updateDisplay() {
+  display.clearDisplay();
+  
+  drawIcons();
+
+  display.setCursor(12, 2);
+  display.setTextColor(white);
+  display.printf("%7.1f", state.pvPower);
+  display.setCursor(57, 2);
+  display.printf("W");
+
+  display.setCursor(12, 12);
+  display.setTextColor(white);
+  display.printf("%7.1f", state.powerConsumption);
+  display.setCursor(57, 12);
+  display.printf("W");
+
+  display.setCursor(12, 22);
+  if (state.gridPower > 0) {
+    display.setTextColor(red);
+  } else if (state.gridPower < 0) {
+    display.setTextColor(green);
+  } else {
+    display.setTextColor(white);
+  }
+  display.printf("%7.1f", state.gridPower);
+  display.setCursor(57, 22);
+  display.printf("W");
+
+  display.showBuffer();
+}
+
+void drawIcons() {
   drawIcon(sun, 1, 1);
   drawIcon(house, 1, 11);
   drawIcon(pole, 1, 21);
@@ -186,25 +218,4 @@ void drawIcon(uint16_t* icon, int x, int y) {
   }
 }
 
-void updateDisplay() {
-  display.fillRect(10, 2, MATRIX_WIDTH - 10, MATRIX_HEIGHT - 5, black);
 
-  display.setCursor(9, 2);
-  display.setTextColor(white);
-  display.printf("%7.1f W", state.pvPower);
-
-  display.setCursor(9, 12);
-  display.setTextColor(white);
-  display.printf("%7.1f W", state.powerConsumption);
-
-  display.setCursor(9, 22);
-
-  if (state.gridPower > 0) {
-    display.setTextColor(red);
-  } else if (state.gridPower < 0) {
-    display.setTextColor(green);
-  } else {
-    display.setTextColor(white);
-  }
-  display.printf("%7.1f W", state.gridPower);
-}
