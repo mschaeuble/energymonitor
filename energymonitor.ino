@@ -17,7 +17,8 @@ const uint16_t mqtt_port = 1883;
 
 const char* pv_power_topic = "homeassistant/pv-power";
 const char* grid_power_topic = "homeassistant/grid-power";
-
+const char* power_consumption_topic = "homeassistant/power-consumption";
+const char* battery_soc_topic = "homeassistant/battery-soc";
 // =======================
 
 WiFiClient espClient;
@@ -26,7 +27,7 @@ Ticker displayTicker;
 
 // This defines the 'on' time of the display is us. The larger this number,
 // the brighter the display. If too large the ESP will crash
-uint8_t display_draw_time = 60;  //30-70 is usually fine
+uint8_t display_draw_time = 50;  //30-70 is usually fine
 
 #define MATRIX_WIDTH 64
 #define MATRIX_HEIGHT 32
@@ -36,6 +37,7 @@ PxMATRIX display(MATRIX_WIDTH, MATRIX_HEIGHT, 16, 2, 5, 4, 15, 12);
 // colors
 const uint16_t white = display.color565(255, 255, 255);
 const uint16_t red = display.color565(255, 77, 77);
+const uint16_t orange = display.color565(255, 196, 128);
 const uint16_t green = display.color565(159, 255, 128);
 const uint16_t blue = display.color565(0, 0, 255);
 const uint16_t black = display.color565(0, 0, 0);
@@ -72,6 +74,7 @@ struct State {
   float pvPower;
   float gridPower;
   float powerConsumption;
+  float batterySOC;
 };
 
 State state = { 0.0, 0.0, 0.0 };
@@ -85,8 +88,9 @@ void setup() {
   display.clearDisplay();
   displayTicker.attach(0.004, displayUpdater);
 
+  delay(10);
+  executeScreenCheck();
   setupWifi();
-
 
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setCallback(mqttCallback);
@@ -97,9 +101,17 @@ void displayUpdater() {
   display.display(display_draw_time);
 }
 
-void setupWifi() {
-  delay(10);
+void executeScreenCheck() {
+  display.fillRect(0, 0, MATRIX_WIDTH, MATRIX_HEIGHT, display.color565(255, 0, 0));
+  delay(1000);
+  display.fillRect(0, 0, MATRIX_WIDTH, MATRIX_HEIGHT, display.color565(0, 255, 0));
+  delay(1000);
+  display.fillRect(0, 0, MATRIX_WIDTH, MATRIX_HEIGHT, display.color565(0, 0, 255));
+  delay(1000);
+  display.clearDisplay();
+}
 
+void setupWifi() {
   display.setCursor(0, 0);
   display.setTextColor(blue);
   display.printf("Connecting to %s", ssid);
@@ -140,6 +152,8 @@ void connectToMqttServer() {
 
       mqttClient.subscribe(pv_power_topic);
       mqttClient.subscribe(grid_power_topic);
+      mqttClient.subscribe(power_consumption_topic);
+      mqttClient.subscribe(battery_soc_topic);
     } else {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
@@ -161,28 +175,30 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     state.pvPower = floatPayload;
   } else if (strcmp(topic, grid_power_topic) == 0) {
     state.gridPower = floatPayload;
+  } else if (strcmp(topic, power_consumption_topic) == 0) {
+    state.powerConsumption = floatPayload;
+  } else if (strcmp(topic, battery_soc_topic) == 0) {
+    state.batterySOC = floatPayload;
   }
-
-  state.powerConsumption = state.gridPower + state.pvPower;
 
   updateDisplay();
 }
 
 void updateDisplay() {
   display.clearDisplay();
-  
-  drawIcons();
+
+  drawBattery();
 
   display.setCursor(12, 2);
   display.setTextColor(white);
-  display.printf("%7.1f", state.pvPower);
-  display.setCursor(57, 2);
+  display.printf("%5.0f", state.pvPower);
+  display.setCursor(45, 2);
   display.printf("W");
 
   display.setCursor(12, 12);
   display.setTextColor(white);
-  display.printf("%7.1f", state.powerConsumption);
-  display.setCursor(57, 12);
+  display.printf("%5.0f", state.powerConsumption);
+  display.setCursor(45, 12);
   display.printf("W");
 
   display.setCursor(12, 22);
@@ -193,17 +209,41 @@ void updateDisplay() {
   } else {
     display.setTextColor(white);
   }
-  display.printf("%7.1f", state.gridPower);
-  display.setCursor(57, 22);
+  display.printf("%5.0f", state.gridPower);
+  display.setCursor(45, 22);
   display.printf("W");
+
+  drawIcons();
 
   display.showBuffer();
 }
 
+void drawBattery() {
+  int batteryOriginX = 1;
+  int batteryOriginY = 1;
+
+  display.fillRect(batteryOriginX + 3, batteryOriginY, 3, 3, white);
+  display.drawRoundRect(batteryOriginX, batteryOriginY + 2, 9, 28, 2, white);
+
+  int batteryFillHeight = round(state.batterySOC / 100.0 * 26.0);
+  if (batteryFillHeight > 0) {
+    uint16_t fillColor;
+    if (state.batterySOC <= 20) {
+      fillColor = red;
+    } else if (state.batterySOC > 50) {
+      fillColor = green;
+    } else {
+      fillColor = orange;
+    }
+
+    display.fillRect(batteryOriginX + 1, batteryOriginY + 3 + 26 - batteryFillHeight, 7, batteryFillHeight, fillColor);
+  }
+}
+
 void drawIcons() {
-  drawIcon(sun, 1, 1);
-  drawIcon(house, 1, 11);
-  drawIcon(pole, 1, 21);
+  drawIcon(sun, 54, 1);
+  drawIcon(house, 54, 11);
+  drawIcon(pole, 54, 21);
 }
 
 void drawIcon(uint16_t* icon, int x, int y) {
@@ -217,5 +257,3 @@ void drawIcon(uint16_t* icon, int x, int y) {
     }
   }
 }
-
-
