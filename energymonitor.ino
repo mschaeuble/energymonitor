@@ -25,6 +25,10 @@ WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 Ticker displayTicker;
 
+bool stateChanged = false;
+unsigned long lastDisplayUpdate = 0;
+const unsigned long displayUpdateInterval = 250;  // ms
+
 // This defines the 'on' time of the display is us. The larger this number,
 // the brighter the display. If too large the ESP will crash
 const uint8_t display_draw_time = 50;  //30-70 is usually fine
@@ -137,6 +141,12 @@ void loop() {
     connectToMqttServer();
   }
   mqttClient.loop();
+
+  if (stateChanged && millis() - lastDisplayUpdate >= displayUpdateInterval) {
+    stateChanged = false;
+    lastDisplayUpdate = millis();
+    updateDisplay();
+  }
 }
 
 void connectToMqttServer() {
@@ -175,7 +185,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     state.batterySOC = floatPayload;
   }
 
-  updateDisplay();
+  stateChanged = true;
 }
 
 void updateDisplay() {
