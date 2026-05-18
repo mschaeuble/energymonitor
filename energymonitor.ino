@@ -12,7 +12,7 @@ const char* password = SECRET_WIFI_PASSWORD;
 const char* mqtt_server = SECRET_MQTT_SERVER;
 const char* mqtt_username = SECRET_MQTT_USER;
 const char* mqtt_password = SECRET_MQTT_PASSWORD;
-const char* mqtt_client_id = "Energy-Montor";
+const char* mqtt_client_id = "Energy-Monitor";
 const uint16_t mqtt_port = 1883;
 
 const char* pv_power_topic = "homeassistant/pv-power";
@@ -27,7 +27,7 @@ Ticker displayTicker;
 
 // This defines the 'on' time of the display is us. The larger this number,
 // the brighter the display. If too large the ESP will crash
-uint8_t display_draw_time = 50;  //30-70 is usually fine
+const uint8_t display_draw_time = 50;  //30-70 is usually fine
 
 #define MATRIX_WIDTH 64
 #define MATRIX_HEIGHT 32
@@ -77,7 +77,7 @@ struct State {
   float batterySOC;
 };
 
-State state = { 0.0, 0.0, 0.0 };
+State state = { 0.0, 0.0, 0.0, 0.0 };
 
 void setup() {
   Serial.begin(9600);
@@ -143,9 +143,6 @@ void connectToMqttServer() {
   while (!mqttClient.connected()) {
     Serial.print("Attempting MQTT connection...");
 
-    mqttClient.setServer(mqtt_server, 1883);
-    mqttClient.setCallback(mqttCallback);
-
     // Attempt to connect
     if (mqttClient.connect(mqtt_client_id, mqtt_username, mqtt_password)) {
       Serial.println("connected");
@@ -164,12 +161,9 @@ void connectToMqttServer() {
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  payload[length] = '\0';
-  String payloadStr = String((char*)payload);
+  float floatPayload = atof((char*)payload);
 
-  Serial.printf("Message arrived [%s]: %s\n", topic, payloadStr);
-
-  float floatPayload = payloadStr.toFloat();
+  Serial.printf("Message arrived [%s]: %.1f\n", topic, floatPayload);
 
   if (strcmp(topic, pv_power_topic) == 0) {
     state.pvPower = floatPayload;
