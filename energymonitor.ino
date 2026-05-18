@@ -171,7 +171,15 @@ void connectToMqttServer() {
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  float floatPayload = atof((char*)payload);
+  // PubSubClient's payload is not null-terminated and its buffer is reused,
+  // so copy exactly `length` bytes out and terminate it ourselves before
+  // parsing — reading past `length` would pick up stale bytes from a
+  // previous (longer) message.
+  char buf[16];
+  size_t len = min(length, sizeof(buf) - 1);
+  memcpy(buf, payload, len);
+  buf[len] = '\0';
+  float floatPayload = atof(buf);
 
   Serial.printf("Message arrived [%s]: %.1f\n", topic, floatPayload);
 
