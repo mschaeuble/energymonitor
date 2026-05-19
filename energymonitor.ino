@@ -20,6 +20,7 @@ const char* pv_power_topic = "homeassistant/pv-power";
 const char* grid_power_topic = "homeassistant/grid-power";
 const char* power_consumption_topic = "homeassistant/power-consumption";
 const char* battery_soc_topic = "homeassistant/battery-soc";
+const char* battery_power_topic = "homeassistant/battery-power";
 // =======================
 
 WiFiClient espClient;
@@ -32,6 +33,11 @@ const unsigned long displayUpdateInterval = 250;  // ms
 
 unsigned long lastMqttReconnectAttempt = 0;
 const unsigned long mqttReconnectInterval = 5000;  // ms
+
+// Slow blink of the top SOC line while (dis)charging.
+bool blinkOn = false;
+unsigned long lastBlinkToggle = 0;
+const unsigned long blinkInterval = 1200;  // ms per phase (slow)
 
 // This defines the 'on' time of the display is us. The larger this number,
 // the brighter the display. If too large the ESP will crash
@@ -78,14 +84,19 @@ const uint16_t pole[] PROGMEM = {
   0x0000
 };
 
+// Declared here (before the first function) so the Arduino-generated
+// prototypes, inserted at the top, can already see this type.
+enum ChargeState { CHARGING, DISCHARGING, IDLE_STATE };
+
 struct State {
   float pvPower;
   float gridPower;
   float powerConsumption;
   float batterySOC;
+  float batteryPower;  // > 0 discharging, < 0 charging (W)
 };
 
-State state = { 0.0, 0.0, 0.0, 0.0 };
+State state = { 0.0, 0.0, 0.0, 0.0, 0.0 };
 
 void setup() {
   Serial.begin(115200);
@@ -187,6 +198,13 @@ void loop() {
     lastDisplayUpdate = millis();
     updateDisplay();
   }
+
+  // Toggle the slow SOC-line blink only while (dis)charging, so idle adds no extra redraws.
+  if (batteryChargeState() != IDLE_STATE && millis() - lastBlinkToggle >= blinkInterval) {
+    lastBlinkToggle = millis();
+    blinkOn = !blinkOn;
+    updateDisplay();
+  }
 }
 
 void connectToMqttServer() {
@@ -199,6 +217,7 @@ void connectToMqttServer() {
     mqttClient.subscribe(grid_power_topic);
     mqttClient.subscribe(power_consumption_topic);
     mqttClient.subscribe(battery_soc_topic);
+    mqttClient.subscribe(battery_power_topic);
   } else {
     Serial.print("failed, rc=");
     Serial.print(mqttClient.state());
@@ -227,6 +246,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     state.powerConsumption = floatPayload;
   } else if (strcmp(topic, battery_soc_topic) == 0) {
     state.batterySOC = floatPayload;
+  } else if (strcmp(topic, battery_power_topic) == 0) {
+    state.batteryPower = floatPayload;
   }
 
   stateChanged = true;
@@ -283,7 +304,18 @@ const int BAT_FILL_TOP = BAT_Y + BAT_BODY_Y_OFFSET + BAT_FILL_INSET;
 const float BAT_SOC_LOW = 20.0;             // <= red
 const float BAT_SOC_HIGH = 50.0;            // > green, else orange
 
+const float BAT_IDLE_W = 20.0;              // |power| below this = idle
+
+// MQTT battery-power sign: > 0 discharging, < 0 charging.
+ChargeState batteryChargeState() {
+  if (state.batteryPower < -BAT_IDLE_W) return CHARGING;
+  if (state.batteryPower > BAT_IDLE_W) return DISCHARGING;
+  return IDLE_STATE;
+}
+
 void drawBattery() {
+  ChargeState charge = batteryChargeState();
+
   // battery tip
   display.fillRect(BAT_X + BAT_TIP_X_OFFSET, BAT_Y, BAT_TIP_W, BAT_TIP_H, white);
 
@@ -301,7 +333,15 @@ void drawBattery() {
       fillColor = orange;
     }
 
-    display.fillRect(BAT_X + BAT_FILL_INSET, BAT_FILL_TOP + BAT_FILL_MAX_H - batteryFillHeight, BAT_FILL_W, batteryFillHeight, fillColor);
+    int fillTopY = BAT_FILL_TOP + BAT_FILL_MAX_H - batteryFillHeight;
+    display.fillRect(BAT_X + BAT_FILL_INSET, fillTopY, BAT_FILL_W, batteryFillHeight, fillColor);
+
+    // Top SOC line slowly blinks while (dis)charging: green = charging,
+    // red = discharging, alternating with black (line off).
+    if (charge != IDLE_STATE) {
+      uint16_t lineColor = blinkOn ? (charge == CHARGING ? green : red) : black;
+      display.drawFastHLine(BAT_X + BAT_FILL_INSET, fillTopY, BAT_FILL_W, lineColor);
+    }
   }
 }
 
