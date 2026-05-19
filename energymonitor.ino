@@ -1,9 +1,10 @@
-#define PxMATRIX_DOUBLE_BUFFER true
+#define PxMATRIX_double_buffer true
 
 #include <PxMatrix.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <Ticker.h>
+#include <ArduinoOTA.h>
 #include "arduino_secrets.h"
 
 // === CONFIGURATION ====
@@ -28,6 +29,9 @@ Ticker displayTicker;
 bool stateChanged = false;
 unsigned long lastDisplayUpdate = 0;
 const unsigned long displayUpdateInterval = 250;  // ms
+
+unsigned long lastMqttReconnectAttempt = 0;
+const unsigned long mqttReconnectInterval = 5000;  // ms
 
 // This defines the 'on' time of the display is us. The larger this number,
 // the brighter the display. If too large the ESP will crash
@@ -84,7 +88,7 @@ struct State {
 State state = { 0.0, 0.0, 0.0, 0.0 };
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   // 1/16 scan display
   display.begin(16);
@@ -95,9 +99,32 @@ void setup() {
   delay(10);
   executeScreenCheck();
   setupWifi();
+  setupOTA();
 
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setCallback(mqttCallback);
+}
+
+void setupOTA() {
+  ArduinoOTA.setHostname("energymonitor");
+  ArduinoOTA.setPassword(SECRET_OTA_PASSWORD);
+
+  // Detach the refresh ISR so it cannot fire while ArduinoOTA writes flash
+  // (which would run flash-resident code with the cache off and crash the ESP).
+  // The panel simply stays dark for the update.
+  ArduinoOTA.onStart([]() {
+    displayTicker.detach();
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    ESP.restart();
+  });
+
+  ArduinoOTA.onEnd([]() {
+    ESP.restart();
+  });
+
+  ArduinoOTA.begin();
 }
 
 // ISR (interrupt service routine) for display refresh
@@ -107,40 +134,53 @@ void displayUpdater() {
 
 void executeScreenCheck() {
   display.fillRect(0, 0, MATRIX_WIDTH, MATRIX_HEIGHT, display.color565(255, 0, 0));
+  display.showBuffer();
   delay(1000);
   display.fillRect(0, 0, MATRIX_WIDTH, MATRIX_HEIGHT, display.color565(0, 255, 0));
+  display.showBuffer();
   delay(1000);
   display.fillRect(0, 0, MATRIX_WIDTH, MATRIX_HEIGHT, display.color565(0, 0, 255));
+  display.showBuffer();
   delay(1000);
   display.clearDisplay();
+  display.showBuffer();
 }
 
 void setupWifi() {
+  display.clearDisplay();
   display.setCursor(0, 0);
   display.setTextColor(blue);
   display.printf("Connecting to %s", ssid);
+  display.showBuffer();
 
   WiFi.mode(WIFI_STA);
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    display.print(".");
   }
 
   display.clearDisplay();
   display.setCursor(0, 0);
+  display.setTextColor(blue);
   display.println("connected");
   display.println(WiFi.localIP());
+  display.showBuffer();
 
   delay(2000);
 }
 
 void loop() {
   if (!mqttClient.connected()) {
-    connectToMqttServer();
+    if (millis() - lastMqttReconnectAttempt >= mqttReconnectInterval) {
+      lastMqttReconnectAttempt = millis();
+      connectToMqttServer();
+    }
+  } else {
+    mqttClient.loop();
   }
-  mqttClient.loop();
+  ArduinoOTA.handle();
 
   if (stateChanged && millis() - lastDisplayUpdate >= displayUpdateInterval) {
     stateChanged = false;
@@ -150,23 +190,19 @@ void loop() {
 }
 
 void connectToMqttServer() {
-  while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
+  Serial.print("Attempting MQTT connection...");
 
-    // Attempt to connect
-    if (mqttClient.connect(mqtt_client_id, mqtt_username, mqtt_password)) {
-      Serial.println("connected");
+  if (mqttClient.connect(mqtt_client_id, mqtt_username, mqtt_password)) {
+    Serial.println("connected");
 
-      mqttClient.subscribe(pv_power_topic);
-      mqttClient.subscribe(grid_power_topic);
-      mqttClient.subscribe(power_consumption_topic);
-      mqttClient.subscribe(battery_soc_topic);
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(" trying again in 5 seconds");
-      delay(5000);
-    }
+    mqttClient.subscribe(pv_power_topic);
+    mqttClient.subscribe(grid_power_topic);
+    mqttClient.subscribe(power_consumption_topic);
+    mqttClient.subscribe(battery_soc_topic);
+  } else {
+    Serial.print("failed, rc=");
+    Serial.print(mqttClient.state());
+    Serial.println(" trying again in 5 seconds");
   }
 }
 
