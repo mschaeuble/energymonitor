@@ -254,31 +254,35 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 }
 
 void updateDisplay() {
+  // Watts are rounded to a long before printing: "%.0f" on -0.3 would
+  // render "-0" (float formatting keeps the sign), but lround()+%ld
+  // collapses small negatives to a clean 0.
   display.clearDisplay();
 
   drawBattery();
 
   display.setCursor(12, 2);
   display.setTextColor(white);
-  display.printf("%5.0f", state.pvPower);
+  display.printf("%5ld", lround(state.pvPower));
   display.setCursor(45, 2);
   display.printf("W");
 
   display.setCursor(12, 12);
   display.setTextColor(white);
-  display.printf("%5.0f", state.powerConsumption);
+  display.printf("%5ld", lround(state.powerConsumption));
   display.setCursor(45, 12);
   display.printf("W");
 
+  long gridWatts = lround(state.gridPower);
   display.setCursor(12, 22);
-  if (state.gridPower > 0) {
+  if (gridWatts > 0) {
     display.setTextColor(red);
-  } else if (state.gridPower < 0) {
+  } else if (gridWatts < 0) {
     display.setTextColor(green);
   } else {
     display.setTextColor(white);
   }
-  display.printf("%5.0f", state.gridPower);
+  display.printf("%5ld", gridWatts);
   display.setCursor(45, 22);
   display.printf("W");
 
