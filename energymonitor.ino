@@ -51,7 +51,7 @@ const uint16_t blue = display.color565(0, 0, 255);
 const uint16_t black = display.color565(0, 0, 0);
 
 // Converted using the following site: http://www.rinkydinkelectronics.com/t_imageconverter565.php
-uint16_t static sun[] = {
+const uint16_t sun[] PROGMEM = {
   0xDE03, 0x0000, 0x0000, 0x0000, 0xE623, 0x0000, 0x0000, 0x0000, 0xCD63, 0x0000, 0xDE03, 0x0000, 0x0000, 0xEE63, 0x0000, 0x0000,  // 0x0010 (16) pixels
   0xDE03, 0x0000, 0x0000, 0x0000, 0x8BC1, 0xDE03, 0xFEE4, 0xDE03, 0x8BC1, 0x0000, 0x0000, 0x0000, 0x0000, 0xDE03, 0xFEE4, 0xFEE4,  // 0x0020 (32) pixels
   0xFEE4, 0xDE03, 0x0000, 0x0000, 0xE623, 0xF6A3, 0xFEE4, 0xFEE4, 0xFEE4, 0xFEE4, 0xFEE4, 0xF683, 0xD5E3, 0x0000, 0x0000, 0xDE03,  // 0x0030 (48) pixels
@@ -60,7 +60,7 @@ uint16_t static sun[] = {
   0xDE03
 };
 
-uint16_t static house[] = {
+const uint16_t house[] PROGMEM = {
   0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xE924, 0x0000, 0x0000,  // 0x0010 (16) pixels
   0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xE924, 0xFFFF, 0xE924, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xE924, 0xD0E3, 0xE924,  // 0x0020 (32) pixels
   0xA8A2, 0xE924, 0x0000, 0x0000, 0xE924, 0xE924, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xD0E3, 0xD0E3, 0x0000, 0xE924, 0xFFFF,  // 0x0030 (48) pixels
@@ -69,7 +69,7 @@ uint16_t static house[] = {
   0x0000
 };
 
-uint16_t static pole[] = {
+const uint16_t pole[] PROGMEM = {
   0x0000, 0x0000, 0x096A, 0x1B14, 0x1B56, 0x1B14, 0x096A, 0x0000, 0x0000, 0x0000, 0x096A, 0x1B14, 0x0000, 0x1B56, 0x0000, 0x1B14,  // 0x0010 (16) pixels
   0x096A, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x1B56, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x096A, 0x1B14, 0x1B56,  // 0x0020 (32) pixels
   0x1B14, 0x09ED, 0x0043, 0x0000, 0x0000, 0x096A, 0x1B14, 0x0000, 0x1B56, 0x0000, 0x12B2, 0x096A, 0x0000, 0x0000, 0x0000, 0x0000,  // 0x0030 (48) pixels
@@ -266,42 +266,50 @@ void updateDisplay() {
   display.showBuffer();
 }
 
+// Battery indicator geometry (left edge of the panel).
+const int BAT_X = 1;
+const int BAT_Y = 1;
+const int BAT_BODY_W = 9;
+const int BAT_BODY_H = 28;
+const int BAT_BODY_RADIUS = 2;
+const int BAT_BODY_Y_OFFSET = 2;            // body top, below the tip
+const int BAT_TIP_W = 3;
+const int BAT_TIP_H = 3;
+const int BAT_TIP_X_OFFSET = 3;
+const int BAT_FILL_INSET = 1;               // gap between body and fill
+const int BAT_FILL_W = BAT_BODY_W - 2 * BAT_FILL_INSET;
+const int BAT_FILL_MAX_H = 26;              // fillable inner height
+const int BAT_FILL_TOP = BAT_Y + BAT_BODY_Y_OFFSET + BAT_FILL_INSET;
+const float BAT_SOC_LOW = 20.0;             // <= red
+const float BAT_SOC_HIGH = 50.0;            // > green, else orange
+
 void drawBattery() {
-  int batteryOriginX = 1;
-  int batteryOriginY = 1;
+  // battery tip
+  display.fillRect(BAT_X + BAT_TIP_X_OFFSET, BAT_Y, BAT_TIP_W, BAT_TIP_H, white);
 
-  display.fillRect(batteryOriginX + 3, batteryOriginY, 3, 3, white);
-  display.drawRoundRect(batteryOriginX, batteryOriginY + 2, 9, 28, 2, white);
+  // battery body/hull
+  display.drawRoundRect(BAT_X, BAT_Y + BAT_BODY_Y_OFFSET, BAT_BODY_W, BAT_BODY_H, BAT_BODY_RADIUS, white);
 
-  int batteryFillHeight = round(state.batterySOC / 100.0 * 26.0);
+  int batteryFillHeight = round(state.batterySOC / 100.0 * BAT_FILL_MAX_H);
   if (batteryFillHeight > 0) {
     uint16_t fillColor;
-    if (state.batterySOC <= 20) {
+    if (state.batterySOC <= BAT_SOC_LOW) {
       fillColor = red;
-    } else if (state.batterySOC > 50) {
+    } else if (state.batterySOC > BAT_SOC_HIGH) {
       fillColor = green;
     } else {
       fillColor = orange;
     }
 
-    display.fillRect(batteryOriginX + 1, batteryOriginY + 3 + 26 - batteryFillHeight, 7, batteryFillHeight, fillColor);
+    display.fillRect(BAT_X + BAT_FILL_INSET, BAT_FILL_TOP + BAT_FILL_MAX_H - batteryFillHeight, BAT_FILL_W, batteryFillHeight, fillColor);
   }
 }
+
+const int ICON_SIZE = 9;
+const int ICON_X = 54;
 
 void drawIcons() {
-  drawIcon(sun, 54, 1);
-  drawIcon(house, 54, 11);
-  drawIcon(pole, 54, 21);
-}
-
-void drawIcon(uint16_t* icon, int x, int y) {
-  int iconHeight = 9;
-  int iconWidth = 9;
-  int counter = 0;
-  for (int yy = 0; yy < iconHeight; yy++) {
-    for (int xx = 0; xx < iconWidth; xx++) {
-      display.drawPixel(x + xx, y + yy, icon[counter]);
-      counter++;
-    }
-  }
+  display.drawRGBBitmap(ICON_X, 1, sun, ICON_SIZE, ICON_SIZE);
+  display.drawRGBBitmap(ICON_X, 11, house, ICON_SIZE, ICON_SIZE);
+  display.drawRGBBitmap(ICON_X, 21, pole, ICON_SIZE, ICON_SIZE);
 }
